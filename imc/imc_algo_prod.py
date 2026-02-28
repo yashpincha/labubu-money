@@ -20,7 +20,7 @@ SPREAD_PERCENTAGE = {
     "WX_SPOT": 0.01,
     "WX_SUM": 0.01,
     "TIDE_SPOT": 0.01,
-    "TIDE_SWING": 0.01,
+    "TIDE_SWING": 0.05,
     "LHR_COUNT": 0.05,
     "LHR_INDEX": 0.5,
     "LON_ETF": 0.05,
