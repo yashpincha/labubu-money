@@ -191,16 +191,13 @@ class PricingEngine:
             target_time = pd.Timestamp("2026-03-01 12:00:00", tz="Europe/London")
             session_start = target_time - pd.Timedelta(hours=24)
 
-            # Use revised times if available, otherwise scheduled
-            def get_best_time(df, col_revised, col_scheduled):
-                times = pd.to_datetime(df[col_revised].fillna(df[col_scheduled]))
-                # Ensure times are localized to London to match target_time
-                if times.dt.tz is None:
-                    times = times.dt.tz_localize("Europe/London")
-                return times
+            def to_london_dt(series):
+                # parse_dates doesn't always handle offsets well, so we convert manually
+                dt = pd.to_datetime(series, utc=True)
+                return dt.dt.tz_convert("Europe/London")
 
-            arr_times = get_best_time(arrivals, 'revised_arrival_times', 'scheduled_arrival_times')
-            dep_times = get_best_time(departures, 'revised_departure_times', 'scheduled_departure_times')
+            arr_times = to_london_dt(arrivals["final_arrival_time"])
+            dep_times = to_london_dt(departures["final_departure_time"])
 
             # Filter for the session window
             arr_session = arr_times[(arr_times > session_start) & (arr_times <= target_time)]
@@ -297,7 +294,7 @@ class MarketMakerBot(BaseBot):
         while True:
             try:
                 # 1. Update Theos periodically
-                if loop_counter % 12 == 0:
+                if loop_counter % 6 == 0:
                     print("\n🔄 Updating theoretical values...")
                     self.theos = self.pricer.get_all_theos()
                     # print(f"Current Positions: {self.positions}")
@@ -360,11 +357,11 @@ class MarketMakerBot(BaseBot):
 
                 # 8. Sleep to respect API limits (max 1 request/sec)
                 loop_counter += 1
-                time.sleep(5) 
+                time.sleep(10) 
 
             except Exception as e:
                 print(f"Error in trading loop: {e}")
-                time.sleep(5)
+                time.sleep(10)
 
 
 if __name__ == "__main__":
