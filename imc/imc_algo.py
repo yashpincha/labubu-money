@@ -17,7 +17,7 @@ AERODATABOX_KEY = "YOUR_RAPIDAPI_KEY"
 
 # How wide around our theoretical fair value we want to quote (in ticks)
 BASE_SPREAD_WIDTH = 5.0
-ORDER_VOLUME = 20
+ORDER_VOLUME = 100
 MAX_POSITION = 100 # Rule: +-100 position limit
 
 # ==========================================
@@ -234,7 +234,7 @@ class MarketMakerBot(BaseBot):
 
     def on_trades(self, trade: Trade):
         side = "BOUGHT" if trade.buyer == self.username else "SOLD"
-        print(f"\n🔔 FILL: {side} {trade.volume}x {trade.product} @ {trade.price}")
+        # print(f"\n🔔 FILL: {side} {trade.volume}x {trade.product} @ {trade.price}")
 
     def run(self):
         self.start() # Starts the SSE streams
