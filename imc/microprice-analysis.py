@@ -56,7 +56,7 @@ class MicropriceSignalBot(BaseBot):
                 time.sleep(15)
                 self.print_report()
         except KeyboardInterrupt:
-            print("\shut down...")
+            print("shut down...")
         finally:
             self.stop()
 

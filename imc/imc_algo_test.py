@@ -127,69 +127,57 @@ class PricingEngine:
 
     def update_tide_theos(self):
         try:
-            # 1. Fetch historical data (use a larger limit for better curve fitting)
-            # 400 readings covers roughly 4 days of history
-            df = self.get_thames(limit = 400)
+            # 1. Fetch historical data (use a large limit for a strong fit)
+            # 500 readings is ~5 days of data
+            df = self.get_thames(limit=500)
             if df.empty:
                 return
 
-            # Define settlement target: Sunday 12:00 PM
+            # Target: Sunday March 1st, 12:00 PM
             target_time = pd.Timestamp("2026-03-01 12:00:00", tz="Europe/London")
             session_start = target_time - pd.Timedelta(hours=24)
 
-            # 2. Sinusoidal Model for Tides
-            # f(t) = A * sin(2*pi*t/T + phi) + C
-            def tidal_func(t, A, phi, C, T):
-                return A * np.sin(2 * np.pi * t / T + phi) + C
+            # 2. Multi-Constituent Tidal Model
+            # Tides are composed of M2 (12.42h) and S2 (12.0h) cycles primarily.
+            def advanced_tidal_func(t, A1, phi1, A2, phi2, C):
+                # M2 constituent (~12.42h period)
+                m2 = A1 * np.sin(2 * np.pi * t / 12.42 + phi1)
+                # S2 constituent (12.0h period)
+                s2 = A2 * np.sin(2 * np.pi * t / 12.0 + phi2)
+                return m2 + s2 + C
 
-            # Prepare data for fitting (hours since the start of our data)
-            df['hours_from_start'] = (df['time'] - df['time'].min()).dt.total_seconds() / 3600.0
+            df['hours'] = (df['time'] - df['time'].min()).dt.total_seconds() / 3600.0
             
-            # Initial guesses: Amplitude=2.5m, Phase=0, Offset=Mean, Period=12.42h (Lunar tide)
-            initial_guess = [2.5, 0, df['level'].mean(), 12.42]
+            # Initial guesses: [Amp1, Phase1, Amp2, Phase2, Offset]
+            initial_guess = [2.0, 0, 0.5, 0, df['level'].mean()]
             
-            params, _ = curve_fit(tidal_func, df['hours_from_start'], df['level'], p0=initial_guess)
+            params, _ = curve_fit(advanced_tidal_func, df['hours'], df['level'], p0=initial_guess)
             
-            # 3. Predict future levels until Sunday 12:00 PM
+            # 3. Predict future levels
             last_time = df['time'].max()
             future_times = pd.date_range(start=last_time + pd.Timedelta(minutes=15), 
                                         end=target_time, freq='15min')
-            
             future_hours = (future_times - df['time'].min()).total_seconds() / 3600.0
-            future_levels = tidal_func(future_hours, *params)
+            future_levels = advanced_tidal_func(future_hours, *params)
             
             df_future = pd.DataFrame({'time': future_times, 'level': future_levels})
             df_full = pd.concat([df[['time', 'level']], df_future]).sort_values('time')
 
-            # 4. TIDE_SPOT Theo: Prediction at Sunday 12:00 PM
-            # Rule: Absolute value in mm AOD (mAOD * 1000)
+            # 4. TIDE_SPOT Theo
             target_level = df_full.iloc[-1]['level']
             self.theos["TIDE_SPOT"] = abs(target_level) * 1000
 
-            # 5. TIDE_SWING Theo: Realized + Predicted Session Volatility
-            # Filter for the specific 24h competition window
+            # 5. TIDE_SWING Theo
             session_df = df_full[(df_full['time'] > session_start) & (df_full['time'] <= target_time)].copy()
-            
             if len(session_df) > 1:
-                # Absolute differences in meters
                 session_df['diff_m'] = session_df['level'].diff().abs()
+                def strangle(d): return max(0, 0.20 - d) + max(0, d - 0.25)
+                self.theos["TIDE_SWING"] = session_df['diff_m'].apply(strangle).sum() * 100
                 
-                def calculate_strangle(diff_m):
-                    if pd.isna(diff_m): return 0
-                    # Strikes: 0.20m and 0.25m
-                    put_payoff = max(0, 0.20 - diff_m)
-                    call_payoff = max(0, diff_m - 0.25)
-                    return put_payoff + call_payoff
-
-                # Multiplier: Sum of payoffs * 100
-                total_swing_m = session_df['diff_m'].apply(calculate_strangle).sum()
-                self.theos["TIDE_SWING"] = total_swing_m * 100
-                
-            print(f"✅ TIDE_SPOT Theo: {self.theos.get('TIDE_SPOT'):.2f} (Pred Level: {target_level:.3f}m)")
-            print(f"✅ TIDE_SWING Theo: {self.theos.get('TIDE_SWING'):.2f}")
+            print(f"✅ TIDE_SPOT: {self.theos['TIDE_SPOT']:.1f} | TIDE_SWING: {self.theos['TIDE_SWING']:.1f}")
 
         except Exception as e:
-            print(f"❌ Error generating Thames theos: {e}")
+            print(f"❌ Error in harmonic fit: {e}")
 
     def update_flight_theos(self):
         try:
@@ -312,7 +300,7 @@ class MarketMakerBot(BaseBot):
                 if loop_counter % 12 == 0:
                     print("\n🔄 Updating theoretical values...")
                     self.theos = self.pricer.get_all_theos()
-                    print(f"Current Positions: {self.positions}")
+                    # print(f"Current Positions: {self.positions}")
 
                 # 2. Cancel old orders & refresh positions
                 self.cancel_all_orders()
@@ -324,8 +312,8 @@ class MarketMakerBot(BaseBot):
                 for symbol in tick_sizes.keys():
                     # if (symbol in ["LHR_COUNT", "LHR_INDEX", "LON_ETF", "LON_FLY"]):
                     #     continue
-                    if (symbol in ["LON_FLY"]):
-                        continue
+                    # if (symbol in ["LON_FLY"]):
+                    #     continue
                     theo = self.theos.get(symbol)
                     if theo is None or math.isnan(theo):
                         continue
