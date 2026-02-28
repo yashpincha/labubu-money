@@ -2,7 +2,9 @@ import time
 import math
 import requests
 import pandas as pd
-from datetime import datetime, timezone
+import numpy as np
+from scipy.optimize import curve_fit
+from datetime import datetime, timezone, timedelta
 from bot_template import BaseBot, OrderBook, OrderRequest, Side, Trade
 
 # ==========================================
@@ -90,8 +92,8 @@ class PricingEngine:
             settlement_row = df.iloc[(df['time'] - target_time).abs().argsort()[:1]]
             
             if not settlement_row.empty:
-                temp_c = settlement_row['temperature_2m'].values[0]
-                humidity = settlement_row['relative_humidity_2m'].values[0]
+                temp_c = settlement_row['temperature'].values[0]
+                humidity = settlement_row['humidity'].values[0]
                 temp_f = self.celsius_to_fahrenheit(temp_c)
                 
                 # Settlement formula: temp_F * humidity_%
@@ -100,12 +102,12 @@ class PricingEngine:
             # 3. WX_SUM: Sum of (temp_F * humidity_%) / 100 over the 24h session
             # Define the 24h session window (e.g., Saturday 12pm to Sunday 12pm)
             session_start = target_time - pd.Timedelta(hours=24)
-            session_df = df[(df['time'] > session_start) & (df['time'] <= target_time)]
+            session_df = df[(df['time'] >= session_start) & (df['time'] <= target_time)]
             
             if not session_df.empty:
                 # Apply formula to each 15-min interval in the session
                 session_df['interval_val'] = session_df.apply(
-                    lambda row: self.celsius_to_fahrenheit(row['temperature_2m']) * row['relative_humidity_2m'], 
+                    lambda row: self.celsius_to_fahrenheit(row['temperature']) * row['humidity'], 
                     axis=1
                 )
                 self.theos["WX_SUM"] = session_df['interval_val'].sum() / 100.0
@@ -115,59 +117,65 @@ class PricingEngine:
 
     def update_tide_theos(self):
         try:
-            # Fetch enough history to cover the 24h session
-            # 96 readings = 24h of 15-min intervals
-            df = self.get_thames(limit=120)
+            # 1. Fetch historical data (use a larger limit for better curve fitting)
+            # 400 readings covers roughly 4 days of history
+            df = self.get_thames(limit=400)
             if df.empty:
                 return
 
             # Define settlement target: Sunday 12:00 PM
-            # Current time is Saturday; settlement is tomorrow at noon.
             target_time = pd.Timestamp("2026-03-01 12:00:00", tz="Europe/London")
             session_start = target_time - pd.Timedelta(hours=24)
 
-            # 1. TIDE_SPOT Theo
-            # Logic: Absolute value of tidal height in mm AOD at 12pm
-            # Since we are currently in the session, the latest reading is our best proxy
-            # until you implement a sinusoidal curve-fitting model.
-            latest_reading = df.iloc[-1]
-            latest_level_maod = latest_reading['level'] # API returns meters
-            
-            # Calculation: |-1.48| * 1000 = 1480
-            self.theos["TIDE_SPOT"] = abs(latest_level_maod) * 1000
+            # 2. Sinusoidal Model for Tides
+            # f(t) = A * sin(2*pi*t/T + phi) + C
+            def tidal_func(t, A, phi, C, T):
+                return A * np.sin(2 * np.pi * t / T + phi) + C
 
-            # 2. TIDE_SWING Theo
-            # Logic: Sum of strangle payoffs on 15-min absolute changes
-            # Filter for data within the active 24h session window
-            session_df = df[(df['time'] > session_start) & (df['time'] <= target_time)].copy()
+            # Prepare data for fitting (hours since the start of our data)
+            df['hours_from_start'] = (df['time'] - df['time'].min()).dt.total_seconds() / 3600.0
+            
+            # Initial guesses: Amplitude=2.5m, Phase=0, Offset=Mean, Period=12.42h (Lunar tide)
+            initial_guess = [2.5, 0, df['level'].mean(), 12.42]
+            
+            params, _ = curve_fit(tidal_func, df['hours_from_start'], df['level'], p0=initial_guess)
+            
+            # 3. Predict future levels until Sunday 12:00 PM
+            last_time = df['time'].max()
+            future_times = pd.date_range(start=last_time + pd.Timedelta(minutes=15), 
+                                        end=target_time, freq='15min')
+            
+            future_hours = (future_times - df['time'].min()).total_seconds() / 3600.0
+            future_levels = tidal_func(future_hours, *params)
+            
+            df_future = pd.DataFrame({'time': future_times, 'level': future_levels})
+            df_full = pd.concat([df[['time', 'level']], df_future]).sort_values('time')
+
+            # 4. TIDE_SPOT Theo: Prediction at Sunday 12:00 PM
+            # Rule: Absolute value in mm AOD (mAOD * 1000)
+            target_level = df_full.iloc[-1]['level']
+            self.theos["TIDE_SPOT"] = abs(target_level) * 1000
+
+            # 5. TIDE_SWING Theo: Realized + Predicted Session Volatility
+            # Filter for the specific 24h competition window
+            session_df = df_full[(df_full['time'] > session_start) & (df_full['time'] <= target_time)].copy()
             
             if len(session_df) > 1:
-                # Calculate absolute differences in meters
+                # Absolute differences in meters
                 session_df['diff_m'] = session_df['level'].diff().abs()
                 
                 def calculate_strangle(diff_m):
                     if pd.isna(diff_m): return 0
-                    # Strikes are 0.20m and 0.25m (20cm and 25cm)
+                    # Strikes: 0.20m and 0.25m
                     put_payoff = max(0, 0.20 - diff_m)
                     call_payoff = max(0, diff_m - 0.25)
                     return put_payoff + call_payoff
 
-                # Realized swing in the session so far
-                realized_swing_m = session_df['diff_m'].apply(calculate_strangle).sum()
+                # Multiplier: Sum of payoffs * 100
+                total_swing_m = session_df['diff_m'].apply(calculate_strangle).sum()
+                self.theos["TIDE_SWING"] = total_swing_m * 100
                 
-                # Projection: Estimate remaining volatility
-                # Calculate how many 15-min intervals remain until Sunday 12pm
-                time_left = target_time - session_df['time'].iloc[-1]
-                intervals_left = max(0, int(time_left.total_seconds() / 900))
-                
-                # Use the average realized payoff per interval to forecast the rest of the session
-                avg_payoff = realized_swing_m / len(session_df)
-                forecasted_swing_m = intervals_left * avg_payoff
-                
-                # Total Theo: (Realized + Forecasted) * 100 multiplier
-                self.theos["TIDE_SWING"] = (realized_swing_m + forecasted_swing_m) * 100
-                
-            print(f"✅ TIDE_SPOT Theo: {self.theos.get('TIDE_SPOT'):.2f}")
+            print(f"✅ TIDE_SPOT Theo: {self.theos.get('TIDE_SPOT'):.2f} (Pred Level: {target_level:.3f}m)")
             print(f"✅ TIDE_SWING Theo: {self.theos.get('TIDE_SWING'):.2f}")
 
         except Exception as e:
