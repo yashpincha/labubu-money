@@ -183,11 +183,63 @@ class PricingEngine:
             print(f"❌ Error generating Thames theos: {e}")
 
     def update_flight_theos(self):
-        # NOTE: RapidAPI is limited to ~150 requests/month. 
-        # In a real bot, cache this and only call it once an hour!
-        # For safety in this template, we will hardcode a naive static estimate unless you plug in the API.
-        self.theos["LHR_COUNT"] = 1200 # Placeholder: typical daily LHR flights
-        self.theos["LHR_INDEX"] = 500  # Placeholder
+        try:
+            # 1. Load the data
+            # Assuming columns: scheduled_arrival_times, revised_arrival_times
+            arrivals = pd.read_csv('data/arrivals.csv')
+            # Assuming columns: scheduled_departure_times, revised_departure_times
+            departures = pd.read_csv('data/departures.csv')
+
+            # 2. Define the 24h Window (Sunday 12:00 PM back to Saturday 12:00 PM)
+            target_time = pd.Timestamp("2026-03-01 12:00:00", tz="Europe/London")
+            session_start = target_time - pd.Timedelta(hours=24)
+
+            # Use revised times if available, otherwise scheduled
+            def get_best_time(df, col_revised, col_scheduled):
+                times = pd.to_datetime(df[col_revised].fillna(df[col_scheduled]))
+                # Ensure times are localized to London to match target_time
+                if times.dt.tz is None:
+                    times = times.dt.tz_localize("Europe/London")
+                return times
+
+            arr_times = get_best_time(arrivals, 'revised_arrival_times', 'scheduled_arrival_times')
+            dep_times = get_best_time(departures, 'revised_departure_times', 'scheduled_departure_times')
+
+            # Filter for the session window
+            arr_session = arr_times[(arr_times > session_start) & (arr_times <= target_time)]
+            dep_session = dep_times[(dep_times > session_start) & (dep_times <= target_time)]
+
+            # 3. LHR_COUNT: Total arrivals + departures
+            self.theos["LHR_COUNT"] = len(arr_session) + len(dep_session)
+
+            # 4. LHR_INDEX: Imbalance metric per 30-min interval
+            # Formula: abs(sum(100 * (arr - dep) / (arr + dep)))
+            
+            # Create a time range of 30-minute bins for the session
+            bins = pd.date_range(start=session_start, end=target_time, freq='30min')
+            
+            interval_metrics = []
+            for i in range(len(bins) - 1):
+                start, end = bins[i], bins[i+1]
+                
+                n_arr = len(arr_session[(arr_session > start) & (arr_session <= end)])
+                n_dep = len(dep_session[(dep_times > start) & (dep_times <= end)])
+                
+                if (n_arr + n_dep) > 0:
+                    # Calculate imbalance for this specific 30m block
+                    imbalance = 100 * (n_arr - n_dep) / (n_arr + n_dep)
+                    interval_metrics.append(imbalance)
+                else:
+                    interval_metrics.append(0)
+
+            # Final settlement is the absolute value of the sum of these metrics
+            self.theos["LHR_INDEX"] = abs(sum(interval_metrics))
+
+            print(f"✈️ LHR_COUNT Theo: {self.theos['LHR_COUNT']}")
+            print(f"✈️ LHR_INDEX Theo: {self.theos['LHR_INDEX']:.2f}")
+
+        except Exception as e:
+            print(f"❌ Error processing flight CSVs: {e}")
 
     def update_derived_theos(self):
         # LON_ETF = TIDE_SPOT + WX_SPOT + LHR_COUNT
@@ -261,8 +313,8 @@ class MarketMakerBot(BaseBot):
                 # 3. Calculate and send new quotes
                 new_orders = []
                 for symbol in tick_sizes.keys():
-                    if (symbol in ["LHR_COUNT", "LHR_INDEX", "LON_ETF", "LON_FLY"]):
-                        continue
+                    # if (symbol in ["LHR_COUNT", "LHR_INDEX", "LON_ETF", "LON_FLY"]):
+                    #     continue
                     theo = self.theos.get(symbol)
                     if theo is None or math.isnan(theo):
                         continue
