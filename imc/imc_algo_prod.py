@@ -28,6 +28,8 @@ SPREAD_PERCENTAGE = {
 }
 ORDER_VOLUME = 10
 MAX_POSITION = 100 # Rule: +-100 position limit
+STUB_VOLUME = 1  # Guaranteed room for the "ridiculous" fill
+STUB_OFFSET_PCT = 0.50
 
 # ==========================================
 # PRICING ENGINE
@@ -337,10 +339,8 @@ class MarketMakerBot(BaseBot):
                     ask_price = math.ceil(theo + dynamic_width - skew)
 
                     # --- 1. SET STUB PARAMETERS ---
-                    STUB_VOLUME = 1  # Guaranteed room for the "ridiculous" fill
                     STUB_BUY_VOLUME = min(MAX_POSITION - current_pos, STUB_VOLUME)
                     STUB_SELL_VOLUME = min(MAX_POSITION + current_pos, STUB_VOLUME)
-                    STUB_OFFSET_PCT = 0.50
 
                     # --- 2. CALCULATE REMAINING ROOM FOR MARKET MAKING ---
                     # We subtract the STUB_VOLUME from our total limit upfront
