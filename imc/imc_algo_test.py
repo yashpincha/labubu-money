@@ -16,7 +16,16 @@ PASSWORD = "test123456"
 AERODATABOX_KEY = "YOUR_RAPIDAPI_KEY"
 
 # How wide around our theoretical fair value we want to quote (in ticks)
-SPREAD_PERCENTAGE = 0.005 # 0.5% of the theo price
+SPREAD_PERCENTAGE = {
+    "WX_SPOT": 0.005,
+    "WX_SUM": 0.005,
+    "TIDE_SPOT": 0.005,
+    "TIDE_SWING": 0.005,
+    "LHR_COUNT": 0.01,
+    "LHR_INDEX": 0.01,
+    "LON_ETF": 0.01,
+    "LON_FLY": 0.01,
+}
 ORDER_VOLUME = 100
 MAX_POSITION = 100 # Rule: +-100 position limit
 
@@ -315,6 +324,8 @@ class MarketMakerBot(BaseBot):
                 for symbol in tick_sizes.keys():
                     # if (symbol in ["LHR_COUNT", "LHR_INDEX", "LON_ETF", "LON_FLY"]):
                     #     continue
+                    if (symbol in ["LON_FLY"]):
+                        continue
                     theo = self.theos.get(symbol)
                     if theo is None or math.isnan(theo):
                         continue
@@ -324,7 +335,7 @@ class MarketMakerBot(BaseBot):
                     
                     # 1. Dynamic Spread Calculation
                     # Calculate the width based on a percentage of the theo
-                    dynamic_width = theo * SPREAD_PERCENTAGE
+                    dynamic_width = theo * SPREAD_PERCENTAGE[symbol]
                     
                     # Optional: Enforce a minimum spread width (e.g., at least 2 ticks)
                     min_width_ticks = 2
