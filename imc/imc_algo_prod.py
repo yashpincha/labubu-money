@@ -338,12 +338,14 @@ class MarketMakerBot(BaseBot):
 
                     # --- 1. SET STUB PARAMETERS ---
                     STUB_VOLUME = 1  # Guaranteed room for the "ridiculous" fill
+                    STUB_BUY_VOLUME = min(MAX_POSITION - current_pos, STUB_VOLUME)
+                    STUB_SELL_VOLUME = min(MAX_POSITION + current_pos, STUB_VOLUME)
                     STUB_OFFSET_PCT = 0.50
 
                     # --- 2. CALCULATE REMAINING ROOM FOR MARKET MAKING ---
                     # We subtract the STUB_VOLUME from our total limit upfront
-                    effective_max_buy = (MAX_POSITION - current_pos) - STUB_VOLUME
-                    effective_max_sell = (MAX_POSITION + current_pos) - STUB_VOLUME
+                    effective_max_buy = (MAX_POSITION - current_pos) - STUB_BUY_VOLUME
+                    effective_max_sell = (MAX_POSITION + current_pos) - STUB_SELL_VOLUME
 
                     # Standard quoting volume is capped by this "effective" room
                     bid_size = max(0, min(ORDER_VOLUME, effective_max_buy))
@@ -354,10 +356,10 @@ class MarketMakerBot(BaseBot):
                     stub_bid = math.floor(theo * (1 - STUB_OFFSET_PCT))
                     stub_ask = math.ceil(theo * (1 + STUB_OFFSET_PCT))
 
-                    if stub_bid > 0 and current_pos + STUB_VOLUME <= MAX_POSITION:
-                        new_orders.append(OrderRequest(symbol, stub_bid, Side.BUY, STUB_VOLUME))
-                    if stub_ask > 0 and current_pos - STUB_VOLUME >= -MAX_POSITION:
-                        new_orders.append(OrderRequest(symbol, stub_ask, Side.SELL, STUB_VOLUME))
+                    if stub_bid > 0 and STUB_BUY_VOLUME > 0:
+                        new_orders.append(OrderRequest(symbol, stub_bid, Side.BUY, STUB_BUY_VOLUME))
+                    if stub_ask > 0 and STUB_SELL_VOLUME > 0:
+                        new_orders.append(OrderRequest(symbol, stub_ask, Side.SELL, STUB_SELL_VOLUME))
 
                     # B. Normal Market Making Quotes
                     if bid_size > 0 and bid_price > 0:
