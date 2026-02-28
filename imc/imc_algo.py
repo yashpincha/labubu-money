@@ -17,7 +17,8 @@ AERODATABOX_KEY = "YOUR_RAPIDAPI_KEY"
 
 # How wide around our theoretical fair value we want to quote (in ticks)
 BASE_SPREAD_WIDTH = 5.0
-ORDER_VOLUME = 5
+ORDER_VOLUME = 20
+MAX_POSITION = 100 # Rule: +-100 position limit
 
 # ==========================================
 # PRICING ENGINE
@@ -38,7 +39,7 @@ class PricingEngine:
         """Convert Open-Meteo Celsius to Fahrenheit for settlement."""
         return (c * 9/5) + 32
     
-    def get_weather(past_steps=96, forecast_steps=96):
+    def get_weather(self, past_steps=96, forecast_steps=96):
         """15-min weather for London. 96 steps = 24 hours.
 
         Returns DataFrame with: time, temperature, wind_speed, humidity,
@@ -46,7 +47,7 @@ class PricingEngine:
         """
         variables = "temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,wind_speed_10m,cloud_cover,visibility"
         resp = requests.get("https://api.open-meteo.com/v1/forecast", params={
-            "latitude": LONDON_LAT, "longitude": LONDON_LON,
+            "latitude": self.LONDON_LAT, "longitude": self.LONDON_LON,
             "minutely_15": variables,
             "past_minutely_15": past_steps,
             "forecast_minutely_15": forecast_steps,
@@ -65,14 +66,14 @@ class PricingEngine:
             "visibility": m["visibility"],
         })
     
-    def get_thames(limit=200):
+    def get_thames(self, limit=200):
         """Fetch recent Thames tidal readings at Westminster.
 
         Returns DataFrame with: time, level (mAOD).
         Use limit=400 for ~4 days of history.
         """
         resp = requests.get(
-            f"https://environment.data.gov.uk/flood-monitoring/id/measures/{THAMES_MEASURE}/readings",
+            f"https://environment.data.gov.uk/flood-monitoring/id/measures/{self.THAMES_MEASURE}/readings",
             params={"_sorted": "", "_limit": limit},
         )
         resp.raise_for_status()
@@ -86,7 +87,7 @@ class PricingEngine:
             df = self.get_weather(96, 96)
 
             # 2. WX_SPOT: Target Sunday 12:00 PM specifically
-            target_time = pd.Timestamp("2026-03-01 12:00:00")
+            target_time = pd.Timestamp("2026-03-01 12:00:00", tz="Europe/London")
             
             # Find the row closest to our target settlement time
             settlement_row = df.iloc[(df['time'] - target_time).abs().argsort()[:1]]
@@ -102,7 +103,7 @@ class PricingEngine:
             # 3. WX_SUM: Sum of (temp_F * humidity_%) / 100 over the 24h session
             # Define the 24h session window (e.g., Saturday 12pm to Sunday 12pm)
             session_start = target_time - pd.Timedelta(hours=24)
-            session_df = df[(df['time'] >= session_start) & (df['time'] <= target_time)]
+            session_df = df[(df['time'] >= session_start) & (df['time'] <= target_time)].copy()
             
             if not session_df.empty:
                 # Apply formula to each 15-min interval in the session
@@ -119,7 +120,7 @@ class PricingEngine:
         try:
             # 1. Fetch historical data (use a larger limit for better curve fitting)
             # 400 readings covers roughly 4 days of history
-            df = self.get_thames(limit=400)
+            df = self.get_thames(limit = 400)
             if df.empty:
                 return
 
@@ -208,6 +209,14 @@ class PricingEngine:
         self.update_tide_theos()
         self.update_flight_theos()
         self.update_derived_theos()
+        print(f"Theoretical TIDE_SPOT = {self.theos["TIDE_SPOT"]}")
+        print(f"Theoretical TIDE_SWING = {self.theos["TIDE_SWING"]}")
+        print(f"Theoretical WX_SPOT = {self.theos["WX_SPOT"]}")
+        print(f"Theoretical WX_SUM = {self.theos["WX_SUM"]}")
+        print(f"Theoretical LHR_COUNT = {self.theos["LHR_COUNT"]}")
+        print(f"Theoretical LHR_INDEX = {self.theos["LHR_INDEX"]}")
+        print(f"Theoretical LON_ETF = {self.theos["LON_ETF"]}")
+        print(f"Theoretical LON_FLY = {self.theos["LON_FLY"]}")
         return self.theos
 
 # ==========================================
@@ -238,13 +247,13 @@ class MarketMakerBot(BaseBot):
 
         while True:
             try:
-                # 1. Update Theos (every ~60 seconds to avoid spamming public APIs)
+                # 1. Update Theos periodically
                 if loop_counter % 12 == 0:
                     print("\n🔄 Updating theoretical values...")
                     self.theos = self.pricer.get_all_theos()
                     print(f"Current Positions: {self.positions}")
 
-                # 2. Cancel old orders
+                # 2. Cancel old orders & refresh positions
                 self.cancel_all_orders()
                 time.sleep(0.5) # Prevent rate limiting
                 self.positions = self.get_positions()
@@ -256,34 +265,43 @@ class MarketMakerBot(BaseBot):
                     if theo is None or math.isnan(theo):
                         continue
 
+                    # Current position for this specific product
+                    current_pos = self.positions.get(symbol, 0)
                     
-                    # Inventory risk management: shift quotes based on our position
-                    # If we are long (positive pos), we drop our prices to sell easier and buy less.
-                    pos = self.positions.get(symbol, 0)
-                    skew = pos * 0.5 
+                    # 4. Inventory Skew: Shift mid-price based on position
+                    skew = current_pos * 0.5 
+                    
+                    bid_price = math.floor(theo - BASE_SPREAD_WIDTH - skew)
+                    ask_price = math.ceil(theo + BASE_SPREAD_WIDTH - skew)
 
-                    # Calculate Bid and Ask
-                    bid = math.floor((theo - BASE_SPREAD_WIDTH - skew))
-                    ask = math.ceil((theo + BASE_SPREAD_WIDTH - skew))
+                    # 5. Size Clipping (Strict Limit Enforcement)
+                    # How much room do we have left before hitting +-100?
+                    max_buy_allowed = MAX_POSITION - current_pos
+                    max_sell_allowed = MAX_POSITION + current_pos
+                    
+                    # Quote the lesser of our standard ORDER_VOLUME or the remaining room
+                    bid_size = max(0, min(ORDER_VOLUME, max_buy_allowed))
+                    ask_size = max(0, min(ORDER_VOLUME, max_sell_allowed))
 
-                    # Ensure bids are strictly positive and bid < ask
-                    if bid > 0 and bid < ask:
-                        new_orders.append(OrderRequest(symbol, bid, Side.BUY, ORDER_VOLUME))
-                        new_orders.append(OrderRequest(symbol, ask, Side.SELL, ORDER_VOLUME))
-                        print(f"Quoting {symbol: <10} | Theo: {theo:.1f} | Bid: {bid} | Ask: {ask}")
+                    # 6. Build Order Requests if we have size to quote
+                    if bid_size > 0 and bid_price > 0:
+                        new_orders.append(OrderRequest(symbol, bid_price, Side.BUY, bid_size))
+                    
+                    if ask_size > 0 and ask_price > bid_price:
+                        new_orders.append(OrderRequest(symbol, ask_price, Side.SELL, ask_size))
 
-                # Send orders in bulk if your API supports it, otherwise loop.
-                # Assuming bot.send_orders takes a list:
+                # 7. Execute Orders in Bulk
                 if new_orders:
                     self.send_orders(new_orders)
 
-                # 4. Sleep to respect API limits (max 1 request/sec)
+                # 8. Sleep to respect API limits (max 1 request/sec)
                 loop_counter += 1
                 time.sleep(5) 
 
             except Exception as e:
                 print(f"Error in trading loop: {e}")
                 time.sleep(5)
+
 
 if __name__ == "__main__":
     bot = MarketMakerBot(EXCHANGE_URL, USERNAME, PASSWORD)
