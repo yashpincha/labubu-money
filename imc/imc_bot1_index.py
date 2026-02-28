@@ -5,7 +5,7 @@ import requests
 from bot_template import BaseBot, OrderBook, Trade, OrderRequest, Side
 
 # EXACT path from your system log
-FILE_PATH = "/Users/xinyuefeng/Downloads/algothon/flights_LHR_20260228_154211.json"
+FILE_PATH = "data/flight_data.json"
 
 class IntegratedBot(BaseBot):
     def __init__(self, cmi_url, username, password):
@@ -80,8 +80,8 @@ class IntegratedBot(BaseBot):
             self.send_orders(orders)
 
 if __name__ == "__main__":
-    EXCHANGE_URL = "http://ec2-52-49-69-152.eu-west-1.compute.amazonaws.com"
-    bot = IntegratedBot(EXCHANGE_URL, "Pret", "Pret123456")
+    EXCHANGE_URL = "http://ec2-52-49-69-152.eu-west-1.compute.amazonaws.com/"
+    bot = IntegratedBot(EXCHANGE_URL, "usertest", "test123456")
     
     bot.start()
     try:

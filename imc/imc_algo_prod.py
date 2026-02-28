@@ -312,7 +312,7 @@ class MarketMakerBot(BaseBot):
                 if loop_counter % 12 == 0:
                     print("\n🔄 Updating theoretical values...")
                     self.theos = self.pricer.get_all_theos()
-                    print(f"Current Positions: {self.positions}")
+                    # print(f"Current Positions: {self.positions}")
 
                 # 2. Cancel old orders & refresh positions
                 self.cancel_all_orders()
@@ -324,8 +324,8 @@ class MarketMakerBot(BaseBot):
                 for symbol in tick_sizes.keys():
                     # if (symbol in ["LHR_COUNT", "LHR_INDEX", "LON_ETF", "LON_FLY"]):
                     #     continue
-                    if (symbol in ["LON_FLY"]):
-                        continue
+                    # if (symbol in ["LON_FLY"]):
+                    #     continue
                     theo = self.theos.get(symbol)
                     if theo is None or math.isnan(theo):
                         continue
