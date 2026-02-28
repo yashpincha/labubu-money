@@ -10,9 +10,9 @@ from bot_template import BaseBot, OrderBook, OrderRequest, Side, Trade
 # ==========================================
 # CONFIGURATION
 # ==========================================
-EXCHANGE_URL = "http://ec2-52-49-69-152.eu-west-1.compute.amazonaws.com/" 
-USERNAME = "usertest"
-PASSWORD = "test123456"
+EXCHANGE_URL = "http://ec2-52-19-74-159.eu-west-1.compute.amazonaws.com/" 
+USERNAME = "NewPret"
+PASSWORD = "NewPret123456"
 AERODATABOX_KEY = "YOUR_RAPIDAPI_KEY"
 
 # How wide around our theoretical fair value we want to quote (in ticks)
