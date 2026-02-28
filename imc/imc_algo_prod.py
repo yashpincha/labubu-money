@@ -336,18 +336,32 @@ class MarketMakerBot(BaseBot):
                     bid_price = math.floor(theo - dynamic_width - skew)
                     ask_price = math.ceil(theo + dynamic_width - skew)
 
-                    # 4. Size Clipping
-                    max_buy_allowed = MAX_POSITION - current_pos
-                    max_sell_allowed = MAX_POSITION + current_pos
-                    
-                    # Quote the lesser of our standard ORDER_VOLUME or the remaining room
-                    bid_size = max(0, min(ORDER_VOLUME, max_buy_allowed))
-                    ask_size = max(0, min(ORDER_VOLUME, max_sell_allowed))
+                    # --- 1. SET STUB PARAMETERS ---
+                    STUB_VOLUME = 1  # Guaranteed room for the "ridiculous" fill
+                    STUB_OFFSET_PCT = 0.50
 
-                    # 6. Build Order Requests if we have size to quote
+                    # --- 2. CALCULATE REMAINING ROOM FOR MARKET MAKING ---
+                    # We subtract the STUB_VOLUME from our total limit upfront
+                    effective_max_buy = (MAX_POSITION - current_pos) - STUB_VOLUME
+                    effective_max_sell = (MAX_POSITION + current_pos) - STUB_VOLUME
+
+                    # Standard quoting volume is capped by this "effective" room
+                    bid_size = max(0, min(ORDER_VOLUME, effective_max_buy))
+                    ask_size = max(0, min(ORDER_VOLUME, effective_max_sell))
+
+                    # --- 3. GENERATE ALL ORDERS ---
+                    # A. Ridiculous Stub Quotes
+                    stub_bid = math.floor(theo * (1 - STUB_OFFSET_PCT))
+                    stub_ask = math.ceil(theo * (1 + STUB_OFFSET_PCT))
+
+                    if stub_bid > 0 and current_pos + STUB_VOLUME <= MAX_POSITION:
+                        new_orders.append(OrderRequest(symbol, stub_bid, Side.BUY, STUB_VOLUME))
+                    if stub_ask > 0 and current_pos - STUB_VOLUME >= -MAX_POSITION:
+                        new_orders.append(OrderRequest(symbol, stub_ask, Side.SELL, STUB_VOLUME))
+
+                    # B. Normal Market Making Quotes
                     if bid_size > 0 and bid_price > 0:
                         new_orders.append(OrderRequest(symbol, bid_price, Side.BUY, bid_size))
-                    
                     if ask_size > 0 and ask_price > bid_price:
                         new_orders.append(OrderRequest(symbol, ask_price, Side.SELL, ask_size))
 
