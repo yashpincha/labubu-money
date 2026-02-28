@@ -26,7 +26,7 @@ SPREAD_PERCENTAGE = {
     "LON_ETF": 0.05,
     "LON_FLY": 0.05,
 }
-ORDER_VOLUME = 5
+ORDER_VOLUME = 10
 MAX_POSITION = 100 # Rule: +-100 position limit
 
 # ==========================================
