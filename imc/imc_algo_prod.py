@@ -21,10 +21,10 @@ SPREAD_PERCENTAGE = {
     "WX_SUM": 0.005,
     "TIDE_SPOT": 0.005,
     "TIDE_SWING": 0.005,
-    "LHR_COUNT": 0.01,
-    "LHR_INDEX": 0.01,
-    "LON_ETF": 0.01,
-    "LON_FLY": 0.01,
+    "LHR_COUNT": 0.05,
+    "LHR_INDEX": 0.05,
+    "LON_ETF": 0.05,
+    "LON_FLY": 0.05,
 }
 ORDER_VOLUME = 5
 MAX_POSITION = 100 # Rule: +-100 position limit
