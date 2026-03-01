@@ -23,8 +23,8 @@ SPREAD_PERCENTAGE = {
     "TIDE_SWING": 0.05,
     "LHR_COUNT": 0.05,
     "LHR_INDEX": 0.1,
-    "LON_ETF": 0.05,
-    "LON_FLY": 0.1,
+    "LON_ETF": 0.02,
+    "LON_FLY": 0.05,
 }
 ORDER_VOLUME = 10
 MAX_POSITION = 100 # Rule: +-100 position limit
@@ -35,8 +35,8 @@ TIER_OFFSETS = {
     "TIDE_SWING": [10.0, 1.0, 2.5, 5.0],
     "LHR_COUNT": [10.0, 1.0, 2.5, 5.0],
     "LHR_INDEX": [5.0, 1.0, 2.0, 3.5],
-    "LON_ETF": [10.0, 1.0, 2.5, 5.0],
-    "LON_FLY": [5.0, 1.0, 2.0, 3.5],
+    "LON_ETF": [25.0, 1.0, 2.5, 5.0],
+    "LON_FLY": [10.0, 1.0, 2.5, 5.0],
 }  # Multipliers for dynamic_width
 TIER_VOLUMES = [1, 5, 10, 15]
 
