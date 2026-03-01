@@ -22,14 +22,23 @@ SPREAD_PERCENTAGE = {
     "TIDE_SPOT": 0.01,
     "TIDE_SWING": 0.05,
     "LHR_COUNT": 0.05,
-    "LHR_INDEX": 0.5,
+    "LHR_INDEX": 0.1,
     "LON_ETF": 0.05,
     "LON_FLY": 0.1,
 }
 ORDER_VOLUME = 10
 MAX_POSITION = 100 # Rule: +-100 position limit
-STUB_VOLUME = 1  # Guaranteed room for the "ridiculous" fill
-STUB_OFFSET_PCT = 0.50
+TIER_OFFSETS = {
+    "WX_SPOT": [50.0, 1.0, 2.5, 5.0],
+    "WX_SUM": [50.0, 1.0, 2.5, 5.0],
+    "TIDE_SPOT": [50.0, 1.0, 2.5, 5.0],
+    "TIDE_SWING": [10.0, 1.0, 2.5, 5.0],
+    "LHR_COUNT": [10.0, 1.0, 2.5, 5.0],
+    "LHR_INDEX": [5.0, 1.0, 2.0, 3.5],
+    "LON_ETF": [10.0, 1.0, 2.5, 5.0],
+    "LON_FLY": [5.0, 1.0, 2.0, 3.5],
+}  # Multipliers for dynamic_width
+TIER_VOLUMES = [1, 5, 10, 15]
 
 # ==========================================
 # PRICING ENGINE
@@ -306,74 +315,52 @@ class MarketMakerBot(BaseBot):
                 time.sleep(0.5) # Prevent rate limiting
                 self.positions = self.get_positions()
 
-                # 3. Calculate and send new quotes
+                # 3. Calculate and build the tiered order ladder
                 new_orders = []
                 for symbol in tick_sizes.keys():
-                    # if (symbol in ["LHR_COUNT", "LHR_INDEX", "LON_ETF", "LON_FLY"]):
-                    #     continue
-                    # if (symbol in ["LON_FLY"]):
-                    #     continue
                     theo = self.theos.get(symbol)
                     if theo is None or math.isnan(theo):
                         continue
 
-                    # Current position for this specific product
                     current_pos = self.positions.get(symbol, 0)
                     
-                    # 1. Dynamic Spread Calculation
-                    # Calculate the width based on a percentage of the theo
-                    dynamic_width = theo * SPREAD_PERCENTAGE[symbol]
+                    # A. Dynamic Spread & Skew Calculation
+                    base_width = theo * SPREAD_PERCENTAGE.get(symbol, 0.01)
+                    base_width = max(base_width, 2)  # Minimum 2 tick spread
                     
-                    # Optional: Enforce a minimum spread width (e.g., at least 2 ticks)
-                    min_width_ticks = 2
-                    dynamic_width = max(dynamic_width, min_width_ticks)
-
-                    # 2. Inventory Skew
-                    # Scale the skew relative to the dynamic width so it's proportional
-                    # If max pos is 100, at max pos we skew by the full width
+                    # Skew shifts the entire ladder based on current inventory
                     skew_factor = current_pos / MAX_POSITION 
-                    skew = skew_factor * dynamic_width
-                    
-                    # 3. Calculate Bid and Ask using the dynamic width
-                    bid_price = math.floor(theo - dynamic_width - skew)
-                    ask_price = math.ceil(theo + dynamic_width - skew)
+                    skew = skew_factor * base_width
 
-                    # --- 1. SET STUB PARAMETERS ---
-                    STUB_BUY_VOLUME = min(MAX_POSITION - current_pos, STUB_VOLUME)
-                    STUB_SELL_VOLUME = min(MAX_POSITION + current_pos, STUB_VOLUME)
+                    # B. Track remaining capacity for the +-100 limit
+                    remaining_buy_room = MAX_POSITION - current_pos
+                    remaining_sell_room = MAX_POSITION + current_pos
 
-                    # --- 2. CALCULATE REMAINING ROOM FOR MARKET MAKING ---
-                    # We subtract the STUB_VOLUME from our total limit upfront
-                    effective_max_buy = (MAX_POSITION - current_pos) - STUB_BUY_VOLUME
-                    effective_max_sell = (MAX_POSITION + current_pos) - STUB_SELL_VOLUME
+                    # C. Generate Tiers (Market Making + Ridiculous Stub)
+                    for offset_mult, vol in zip(TIER_OFFSETS[symbol], TIER_VOLUMES):
+                        # Calculate prices for this specific tier
+                        tier_bid = math.floor(theo - (base_width * offset_mult) - skew)
+                        tier_ask = math.ceil(theo + (base_width * offset_mult) - skew)
 
-                    # Standard quoting volume is capped by this "effective" room
-                    bid_size = max(0, min(ORDER_VOLUME, effective_max_buy))
-                    ask_size = max(0, min(ORDER_VOLUME, effective_max_sell))
+                        # Determine sizes that fit within remaining limit room
+                        this_buy_vol = max(0, min(vol, remaining_buy_room))
+                        this_sell_vol = max(0, min(vol, remaining_sell_room))
 
-                    # --- 3. GENERATE ALL ORDERS ---
-                    # A. Ridiculous Stub Quotes
-                    stub_bid = math.floor(theo * (1 - STUB_OFFSET_PCT))
-                    stub_ask = math.ceil(theo * (1 + STUB_OFFSET_PCT))
+                        # Build Buy Order
+                        if this_buy_vol > 0 and tier_bid > 0:
+                            new_orders.append(OrderRequest(symbol, tier_bid, Side.BUY, int(this_buy_vol)))
+                            remaining_buy_room -= this_buy_vol  # Consume room for next tier
 
-                    if stub_bid > 0 and STUB_BUY_VOLUME > 0:
-                        new_orders.append(OrderRequest(symbol, stub_bid, Side.BUY, STUB_BUY_VOLUME))
-                    if stub_ask > 0 and STUB_SELL_VOLUME > 0:
-                        new_orders.append(OrderRequest(symbol, stub_ask, Side.SELL, STUB_SELL_VOLUME))
+                        # Build Sell Order (ensure spread is not crossed)
+                        if this_sell_vol > 0 and tier_ask > tier_bid:
+                            new_orders.append(OrderRequest(symbol, tier_ask, Side.SELL, int(this_sell_vol)))
+                            remaining_sell_room -= this_sell_vol # Consume room for next tier
 
-                    # B. Normal Market Making Quotes
-                    if bid_size > 0 and bid_price > 0:
-                        new_orders.append(OrderRequest(symbol, bid_price, Side.BUY, bid_size))
-                    if ask_size > 0 and ask_price > bid_price:
-                        new_orders.append(OrderRequest(symbol, ask_price, Side.SELL, ask_size))
-
-                # 7. Execute Orders in Bulk
                 if new_orders:
                     self.send_orders(new_orders)
 
-                # 8. Sleep to respect API limits (max 1 request/sec)
                 loop_counter += 1
-                time.sleep(10) 
+                time.sleep(10)  # Respect API limits (max 1 request/sec)
 
             except Exception as e:
                 print(f"Error in trading loop: {e}")
