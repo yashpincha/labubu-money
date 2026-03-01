@@ -6,7 +6,7 @@ from scipy.optimize import minimize
 from sklearn.covariance import LedoitWolf
 warnings.filterwarnings('ignore')
 np.random.seed(42)
-DATA_PATH = '/Users/yash/algothon-26/man-imperial-algothon-2026/data/2024-12-31'
+DATA_PATH = '/Users/yash/algothon-26/man-imperial-algothon-2026/data/2025-09-30'
 prices = pd.read_csv(os.path.join(DATA_PATH, 'prices.csv'), parse_dates=['date']).sort_values('date').set_index('date')
 signals = pd.read_csv(os.path.join(DATA_PATH, 'signals.csv'), parse_dates=['date']).sort_values('date').set_index('date')
 instruments = [f'INSTRUMENT_{i}' for i in range(1, 11)]
@@ -14,8 +14,8 @@ N = len(instruments)
 returns = prices[instruments].pct_change().dropna()
 signal_cols = [c for c in signals.columns if 'trend' in c]
 
-TRAIN_END = '2024-06-30'
-TEST_START = '2024-07-01'
+TRAIN_END = '2025-05-30'
+TEST_START = '2025-09-30'
 train_ret = returns.loc[:TRAIN_END]
 test_ret = returns.loc[TEST_START:]
 train_sig = signals.loc[:TRAIN_END]
