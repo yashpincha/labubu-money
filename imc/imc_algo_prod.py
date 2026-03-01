@@ -38,7 +38,7 @@ TIER_OFFSETS = {
     "LON_ETF": [25.0, 1.0, 2.5, 5.0],
     "LON_FLY": [10.0, 1.0, 2.5, 5.0],
 }  # Multipliers for dynamic_width
-TIER_VOLUMES = [1, 5, 10, 15]
+TIER_VOLUMES = [1, 10, 10, 20]
 
 # ==========================================
 # PRICING ENGINE
