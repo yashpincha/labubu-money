@@ -18,12 +18,12 @@ AERODATABOX_KEY = "YOUR_RAPIDAPI_KEY"
 # How wide around our theoretical fair value we want to quote (in ticks)
 SPREAD_PERCENTAGE = {
     "WX_SPOT": 0.01,
-    "WX_SUM": 0.01,
+    "WX_SUM": 0.005,
     "TIDE_SPOT": 0.01,
     "TIDE_SWING": 0.05,
     "LHR_COUNT": 0.02,
     "LHR_INDEX": 0.1,
-    "LON_ETF": 0.02,
+    "LON_ETF": 0.01,
     "LON_FLY": 0.05,
 }
 ORDER_VOLUME = 10
