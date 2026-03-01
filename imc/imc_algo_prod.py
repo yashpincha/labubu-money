@@ -211,8 +211,8 @@ class PricingEngine:
             dep_times = to_london_dt(departures["final_departure_time"])
 
             # Filter for the session window
-            arr_session = arr_times[(arr_times > session_start) & (arr_times <= target_time)]
-            dep_session = dep_times[(dep_times > session_start) & (dep_times <= target_time)]
+            arr_session = arr_times[(arr_times >= session_start) & (arr_times <= target_time)]
+            dep_session = dep_times[(dep_times >= session_start) & (dep_times <= target_time)]
 
             # 3. LHR_COUNT: Total arrivals + departures
             self.theos["LHR_COUNT"] = len(arr_session) + len(dep_session)
@@ -227,8 +227,8 @@ class PricingEngine:
             for i in range(len(bins) - 1):
                 start, end = bins[i], bins[i+1]
                 
-                n_arr = len(arr_session[(arr_session > start) & (arr_session <= end)])
-                n_dep = len(dep_session[(dep_times > start) & (dep_times <= end)])
+                n_arr = len(arr_session[(arr_session >= start) & (arr_session < end)])
+                n_dep = len(dep_session[(dep_times >= start) & (dep_times < end)])
                 
                 if (n_arr + n_dep) > 0:
                     # Calculate imbalance for this specific 30m block
