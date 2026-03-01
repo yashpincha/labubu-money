@@ -179,7 +179,7 @@ class PricingEngine:
             self.theos["TIDE_SPOT"] = abs(target_level) * 1000
 
             # 5. TIDE_SWING Theo
-            session_df = df_full[(df_full['time'] > session_start) & (df_full['time'] <= target_time)].copy()
+            session_df = df_full[(df_full['time'] >= session_start) & (df_full['time'] <= target_time)].copy()
             if len(session_df) > 1:
                 session_df['diff_m'] = session_df['level'].diff().abs()
                 def strangle(d): return max(0, 0.20 - d) + max(0, d - 0.25)
