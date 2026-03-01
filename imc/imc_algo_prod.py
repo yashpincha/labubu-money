@@ -22,7 +22,7 @@ SPREAD_PERCENTAGE = {
     "TIDE_SPOT": 0.01,
     "TIDE_SWING": 0.05,
     "LHR_COUNT": 0.02,
-    "LHR_INDEX": 0.1,
+    "LHR_INDEX": 0.05,
     "LON_ETF": 0.01,
     "LON_FLY": 0.05,
 }
