@@ -29,16 +29,16 @@ SPREAD_PERCENTAGE = {
 ORDER_VOLUME = 10
 MAX_POSITION = 100 # Rule: +-100 position limit
 TIER_OFFSETS = {
-    "WX_SPOT": [50.0, 1.0, 2.5, 5.0],
-    "WX_SUM": [50.0, 1.0, 2.5, 5.0],
-    "TIDE_SPOT": [50.0, 1.0, 2.5, 5.0],
-    "TIDE_SWING": [10.0, 1.0, 2.5, 5.0],
-    "LHR_COUNT": [10.0, 1.0, 2.5, 5.0],
-    "LHR_INDEX": [5.0, 1.0, 2.0, 3.5],
-    "LON_ETF": [25.0, 1.0, 2.5, 5.0],
-    "LON_FLY": [10.0, 1.0, 2.5, 5.0],
+    "WX_SPOT": [50.0, 5.0, 2.5, 1.0],
+    "WX_SUM": [50.0, 5.0, 2.5, 1.0],
+    "TIDE_SPOT": [50.0, 5.0, 2.5, 1.0],
+    "TIDE_SWING": [10.0, 5.0, 2.5, 1.0],
+    "LHR_COUNT": [10.0, 5.0, 2.5, 1.0],
+    "LHR_INDEX": [5.0, 3.5, 2.0, 1.0],
+    "LON_ETF": [25.0, 5.0, 2.5, 1.0],
+    "LON_FLY": [10.0, 5.0, 2.5, 1.0],
 }  # Multipliers for dynamic_width
-TIER_VOLUMES = [1, 10, 10, 20]
+TIER_VOLUMES = [1, 20, 10, 10]
 
 # ==========================================
 # PRICING ENGINE
